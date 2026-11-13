@@ -98,6 +98,14 @@ describe('cut', () => {
     expect(ao[0]).toHaveLength(AO_W * AO_H);
   });
 
+  it('cuts by steps of depth alone', () => {
+    const map = relief(scan(0), 0, depth(), 'steps');
+    const middle = (ART_BOX.y + ART_BOX.h / 2) * W + ART_BOX.x + ART_BOX.w / 2;
+    expect(map.parts[middle]).toBe(Part.Subject);
+    expect(map.layer[middle]).toBeGreaterThan(0.9);
+    expect(map.parts[(ART_BOX.y + 10) * W + ART_BOX.x + 10]).toBe(Part.Back);
+  });
+
   it('rounds the card corners', () => {
     expect(onCard(0, 0)).toBe(false);
     expect(onCard(W / 2, H / 2)).toBe(true);

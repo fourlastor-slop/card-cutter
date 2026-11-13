@@ -1,5 +1,6 @@
 import './style.css';
 import { CARD_MM, H, W } from './card';
+import type { SubjectBy } from './cut/relief';
 import type { Stack } from './cut/sheets';
 import type { Precision } from './depth';
 import { CardView, FINISHES, TURN, type Finish } from './render/view';
@@ -19,7 +20,7 @@ const facts = $('facts');
 const playButton = $<HTMLButtonElement>('play');
 const videoButton = $<HTMLButtonElement>('video');
 
-// ?precision=q8|fp32, ?stack=single|nested: for trying things out
+// ?precision=q8|fp32, ?stack=single|nested, ?subject=colour (the colour fill alone): for trying things out
 const params = new URLSearchParams(location.search);
 const option = <T extends string>(name: string, allowed: readonly T[]) => {
   const v = params.get(name) as T | null;
@@ -104,6 +105,17 @@ if (import.meta.env.DEV)
     },
   });
 
+// how the art is cut: the colour fill with the depth's help, or the depth alone in steps; a
+// change cuts the card again
+const cutBy = $<HTMLSelectElement>('cut');
+const forced = option<SubjectBy>('subject', ['colour', 'depth', 'steps']);
+if (forced && forced !== 'colour') cutBy.value = forced;
+const subjectBy = (): SubjectBy => (forced === 'colour' ? 'colour' : cutBy.value === 'steps' ? 'steps' : 'depth');
+let lastCard: File | null = null;
+cutBy.addEventListener('change', () => {
+  if (lastCard) void cut(lastCard);
+});
+
 const finish = $<HTMLSelectElement>('finish');
 const applyFinish = () => {
   if ((FINISHES as readonly string[]).includes(finish.value)) view.setFinish(finish.value as Finish);
@@ -166,6 +178,7 @@ const say = (text: string, error = false) => {
 async function cut(chosen: File): Promise<void> {
   if (working) return;
   working = true;
+  cutBy.disabled = true;
   playButton.disabled = videoButton.disabled = true;
   say('');
   try {
@@ -195,7 +208,8 @@ async function cut(chosen: File): Promise<void> {
     bitmap.close();
 
     setBusy('Finding the depth…');
-    const result = await runCut({ scan, precision, stack });
+    const result = await runCut({ scan, precision, stack, subject: subjectBy() });
+    lastCard = chosen;
     setBusy('Building the sheets…');
     await new Promise((r) => requestAnimationFrame(r));
     view.show({ sheets: result.sheets, occlusion: result.occlusion, scan: print });
@@ -212,6 +226,7 @@ async function cut(chosen: File): Promise<void> {
   } finally {
     setBusy(null);
     working = false;
+    cutBy.disabled = false;
   }
 }
 

@@ -2,7 +2,7 @@
 // subject, then the sheets and their ambient occlusion.
 
 import { ART_BOX, H, W } from './card';
-import { countStars, relief } from './cut/relief';
+import { countStars, relief, type SubjectBy } from './cut/relief';
 import { occlusion, sheets, type Sheet, type Stack } from './cut/sheets';
 import { depthOf, type Precision } from './depth';
 
@@ -11,6 +11,7 @@ export interface CutRequest {
   scan: ImageData;
   precision?: Precision;
   stack?: Stack;
+  subject?: SubjectBy;
 }
 
 export type CutMessage =
@@ -34,7 +35,7 @@ const post = (message: CutMessage, transfer: Transferable[] = []) => (self as un
 
 self.onmessage = async (event: MessageEvent<CutRequest>) => {
   try {
-    const { scan, precision = 'q8', stack = 'single' } = event.data;
+    const { scan, precision = 'q8', stack = 'single', subject = 'depth' } = event.data;
     if (scan.width !== W || scan.height !== H) throw new Error(`The scan must be ${W}x${H}.`);
     const art = new ImageData(ART_BOX.w, ART_BOX.h);
     for (let y = 0; y < ART_BOX.h; y++) {
@@ -46,7 +47,7 @@ self.onmessage = async (event: MessageEvent<CutRequest>) => {
     post({ type: 'progress', stage: 'cut' });
     const started = performance.now();
     const stars = countStars(scan.data);
-    const map = relief(scan.data, stars, depth.depth);
+    const map = relief(scan.data, stars, depth.depth, subject);
     const list = sheets(map, stack);
     const ao = occlusion(list);
     const cutMs = performance.now() - started;

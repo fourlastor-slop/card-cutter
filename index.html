@@ -36,6 +36,13 @@
           <button type="button" id="video" disabled>Download video</button>
         </div>
         <label class="finish">
+          Cut
+          <select id="cut" title="Colour + depth keeps backgrounds flat. Depth steps also lifts dark parts that blend into the background, but layers the background too.">
+            <option value="depth">Colour + depth</option>
+            <option value="steps">Depth steps</option>
+          </select>
+        </label>
+        <label class="finish">
           Finish
           <select id="finish">
             <option value="gloss">Gloss</option>

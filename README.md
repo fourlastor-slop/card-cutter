@@ -10,13 +10,18 @@ Live at <https://card-cutter.fourlastor.org>.
 - **Frame.** The parts of a modern TCG frame (name box, attribute, level stars, art window,
   text box) are at fixed places, measured on 813×1185 scans (`src/card.ts`). Any other size
   is stretched to that. Level stars are found by their colour in each slot.
-- **Subject.** A minimum-barrier fill from the art window's edge, in L\*a\*b\*, with an Otsu
-  threshold, finds what stands out from the background (`src/cut/relief.ts`).
+- **Subject.** Two ways, chosen in the page's Cut menu (`src/cut/relief.ts`):
+  - *Colour + depth* (the default): a minimum-barrier fill from the art window's edge, in
+    L\*a\*b\*, with an Otsu threshold, finds what stands out from the background by colour;
+    whatever is clearly nearer than the background (by the depth) joins it, and background
+    walled in by the subject is taken back by colour and depth together.
+  - *Depth steps*: no colour at all; the art in seven equal steps of depth, the farthest left
+    on the back. It catches dark parts that blend into a dark background, but cuts smooth
+    backgrounds into terraces too.
 - **Depth.** [Depth Anything V2 Small](https://huggingface.co/onnx-community/depth-anything-v2-small)
   (int8, 27 MB, Apache-2.0) runs with onnxruntime-web on WebAssembly in a worker
   (`src/depth.ts`). It is downloaded from Hugging Face on first use and kept in the
-  browser's cache. Background walled in by the subject is found by colour and depth together.
-- **Sheets.** The back is the whole card; the frame is five sheets with the window cut out;
+  browser's cache. - **Sheets.** The back is the whole card; the frame is five sheets with the window cut out;
   the subject is six sheets by depth, each part on one sheet only; the name box, stars and
   text box sit one sheet above the frame, the attribute one more (`src/cut/sheets.ts`).
   Ambient occlusion is baked per level from the sheets above.
