@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "mediabunny": "^1.66.0",
     "onnxruntime-web": "^1.31.1",
     "three": "^0.187.0"
   },

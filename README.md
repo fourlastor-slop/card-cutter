@@ -22,7 +22,10 @@ Live at <https://card-cutter.fourlastor.org>.
   Ambient occlusion is baked per level from the sheets above.
 - **Rendering.** three.js: banded light, a shadow map of the cut shapes, gloss from a few
   analytic soft boxes, paper grain, matte cut edges, and an optional holo foil
-  (`src/render/`). The turn can be saved as a video with MediaRecorder.
+  (`src/render/`).
+- **Video.** The turn is drawn frame by frame and encoded to an H.264 MP4 with WebCodecs
+  ([mediabunny](https://mediabunny.dev) packs it), in Chromium and Firefox alike
+  (`src/video.ts`). Browsers without WebCodecs fall back to recording the canvas in real time.
 
 ## Development
 

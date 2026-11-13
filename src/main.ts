@@ -3,7 +3,7 @@ import { CARD_MM, H, W } from './card';
 import type { Stack } from './cut/sheets';
 import type { Precision } from './depth';
 import { CardView, FINISHES, TURN, type Finish } from './render/view';
-import { record, videoType } from './video';
+import { canMakeVideo, makeVideo } from './video';
 import type { CutMessage, CutRequest, CutResult } from './worker';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -203,8 +203,8 @@ async function cut(chosen: File): Promise<void> {
     clock = 0;
     setPlaying(true);
     playButton.disabled = false;
-    videoButton.disabled = videoType() === null;
-    if (videoType() === null) videoButton.title = 'This browser cannot record video.';
+    videoButton.disabled = !canMakeVideo();
+    if (!canMakeVideo()) videoButton.title = 'This browser cannot make videos.';
     showFacts(result);
     say(skewed ? "That image isn't card-shaped, so it was stretched to fit; the cut may be off." : 'Done. Drag to turn it, double-click to let it spin again.');
   } catch (error) {
@@ -262,17 +262,17 @@ videoButton.addEventListener('click', async () => {
   recording = true;
   videoButton.disabled = playButton.disabled = true;
   view.setSize(1080, 1350, 1);
-  setBusy('Recording the turn…', 0);
+  setBusy('Making the video…', 0);
   try {
-    const video = await record(
+    const video = await makeVideo(
       canvas,
-      TURN.seconds,
+      { width: 1080, height: 1350, seconds: TURN.seconds, fps: 30 },
       (t) => {
         const pose = turn(t);
         view.pose(pose.yaw, pose.pitch);
         view.render();
       },
-      (share) => setBusy('Recording the turn…', share),
+      (share) => setBusy('Making the video…', share),
     );
     const link = document.createElement('a');
     link.href = URL.createObjectURL(video);
