@@ -57,10 +57,13 @@ float keyShadow(vec3 world, vec3 n) {
   return smoothstep(0.3, 0.7, sum / 9.0);
 }
 
-vec3 shadeTinted(vec3 albedo, float metallic, float roughness, vec3 n, vec3 world, float occlusion, vec3 tint) {
-  float shadow = keyShadow(world, n);
-  float facing = dot(n, keyDir);
-  vec3 diffuse = keyColor * band(facing, shadow) + rimColor * band(dot(n, rimDir), 1.0) + ambient;
+// surface: the sheet's own normal, for the light's bands and the shadow; n: the normal the
+// gloss mirrors the studio in (with the paper's grain: a coated card shows its texture in its
+// reflections, not in its print)
+vec3 shadeTinted(vec3 albedo, float metallic, float roughness, vec3 surface, vec3 n, vec3 world, float occlusion, vec3 tint) {
+  float shadow = keyShadow(world, surface);
+  float facing = dot(surface, keyDir);
+  vec3 diffuse = keyColor * band(facing, shadow) + rimColor * band(dot(surface, rimDir), 1.0) + ambient;
   vec3 v = normalize(cameraPosition - world);
   // the shadow keeps the studio out only where the surface faces the light (a side facing
   // away is in its own shadow, and catches the studio's other lights)
@@ -70,7 +73,7 @@ vec3 shadeTinted(vec3 albedo, float metallic, float roughness, vec3 n, vec3 worl
 }
 
 vec3 shade(vec3 albedo, float metallic, float roughness, vec3 n, vec3 world, float occlusion) {
-  return shadeTinted(albedo, metallic, roughness, n, world, occlusion, mix(vec3(0.04), albedo, metallic));
+  return shadeTinted(albedo, metallic, roughness, n, n, world, occlusion, mix(vec3(0.04), albedo, metallic));
 }
 `;
 
@@ -151,7 +154,7 @@ void main() {
       tint = mix(tint, sheen, foil);
       rough = mix(rough, 0.18, foil);
     }
-    color = shadeTinted(albedo, metallic, rough, n, vWorld, texture2D(ao, vUv).r, tint);
+    color = shadeTinted(albedo, metallic, rough, normalize(vNormal), n, vWorld, texture2D(ao, vUv).r, tint);
   }
   gl_FragColor = linearToOutputTexel(vec4(color, alpha));
 }
