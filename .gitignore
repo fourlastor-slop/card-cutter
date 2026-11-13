@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.wrangler/
+.cache/
+# local only: card scans and renders (Konami's artwork), the Godot prototype, the models
+reference/

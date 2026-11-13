@@ -1,0 +1,18 @@
+// How the site is published on Cloudflare: as a Worker made of static assets, with no code
+// of its own. .github/workflows/deploy.yml deploys it on every push to main.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "card-cutter",
+  "compatibility_date": "2026-10-01",
+
+  // With no "main" script, requests are answered straight from the files of the build
+  // (public/_headers adds the cross-origin isolation headers the depth model's threads need).
+  "assets": { "directory": "./dist" },
+
+  // A custom domain: Cloudflare creates the DNS record and the certificate for it when
+  // the Worker is deployed.
+  "routes": [{ "pattern": "card-cutter.fourlastor.org", "custom_domain": true }],
+
+  "workers_dev": false,
+  "preview_urls": false
+}

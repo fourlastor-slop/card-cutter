@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Upload a card scan and see it cut into layers of card, in 3D, in your browser." />
+    <title>Card Cutter</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='6' y='3' width='20' height='26' rx='2' fill='%23c9a75a'/%3E%3Crect x='9' y='7' width='14' height='13' fill='%231a2033'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header>
+      <h1>Card Cutter</h1>
+      <p class="lede">Drop in a card scan and see it cut into a shadow box: thin sheets of card, stacked with small gaps, the monster layered by depth.</p>
+    </header>
+
+    <main>
+      <section class="stage" id="stage">
+        <canvas id="view" aria-label="The card in layers, turning"></canvas>
+        <label class="drop" id="drop" for="file">
+          <span class="drop-title pointer">Drop a card scan here</span>
+          <span class="drop-sub pointer">or click to choose an image</span>
+          <span class="drop-title touch">Tap to choose a card scan</span>
+          <span class="drop-sub touch">a straight, cropped picture of the front works best</span>
+        </label>
+        <div class="busy" id="busy" hidden>
+          <div class="busy-text" id="busy-text">Working…</div>
+          <div class="bar"><div class="bar-fill" id="bar"></div></div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <input type="file" id="file" accept="image/*" hidden />
+        <div class="buttons">
+          <button type="button" id="choose">Choose a card…</button>
+          <button type="button" id="play" disabled>Pause</button>
+          <button type="button" id="video" disabled>Download video</button>
+        </div>
+        <label class="finish">
+          Finish
+          <select id="finish">
+            <option value="gloss">Gloss</option>
+            <option value="holo-art">Holo art</option>
+            <option value="holo">Full holo</option>
+          </select>
+        </label>
+        <p class="status" id="status" role="status"></p>
+        <dl class="facts" id="facts" hidden></dl>
+        <p class="hint">Drag the card to turn it. Works with scans of modern-frame cards. Your image never leaves your browser; the first cut downloads a 27&nbsp;MB depth model, kept for next time.</p>
+      </aside>
+    </main>
+
+    <footer>
+      Depth by <a href="https://huggingface.co/onnx-community/depth-anything-v2-small" rel="noopener">Depth Anything V2 Small</a> (Apache-2.0).
+      A fan-made toy, not affiliated with or endorsed by Konami.
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
