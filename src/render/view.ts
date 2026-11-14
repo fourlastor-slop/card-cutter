@@ -3,8 +3,8 @@
 // light grazes from the right, and the card turns in a figure of eight.
 
 import * as THREE from 'three';
-import { ART_BOX, CARD_MM, H, W } from '../card';
-import { AO_H, AO_W, type Sheet } from '../cut/sheets';
+import type { Layout } from '../card';
+import { aoSize, type Sheet } from '../cut/sheets';
 import { backdropShader, casterShader, edgeShader, sheetShader } from './shaders';
 import { cardBack, paperGrain } from './textures';
 
@@ -27,14 +27,16 @@ export const FINISHES = ['gloss', 'holo-art', 'holo'] as const;
 export type Finish = (typeof FINISHES)[number];
 
 export interface CardData {
+  /** The game's frame the sheets were cut by. */
+  layout: Layout;
   sheets: Sheet[];
   occlusion: Uint8Array[];
   /** The scan to print on the sheets (any size: it is stretched over the card). */
   scan: TexImageSource;
 }
 
-/** Where a point of the scan (by its texture coordinates) is on the card, in world units. */
-const place = (u: number, v: number) => [((u - 0.5) * CARD_MM.x) / UNIT, ((0.5 - v) * CARD_MM.y) / UNIT] as const;
+/** Where a point of the scan (by its texture coordinates) is on a card of this size, in world units. */
+const place = (mm: Layout['mm'], u: number, v: number) => [((u - 0.5) * mm.x) / UNIT, ((0.5 - v) * mm.y) / UNIT] as const;
 
 export class CardView {
   readonly renderer: THREE.WebGLRenderer;
@@ -81,7 +83,7 @@ export class CardView {
       shadowTexel: { value: 1 / SHADOW_SIZE },
       aoStrength: { value: 0.75 },
       holo: { value: 0 },
-      artWindow: { value: new THREE.Vector4(ART_BOX.x / W, ART_BOX.y / H, (ART_BOX.x + ART_BOX.w) / W, (ART_BOX.y + ART_BOX.h) / H) },
+      artWindow: { value: new THREE.Vector4() },
     };
 
     this.backdrop = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.ShaderMaterial(backdropShader));
@@ -100,6 +102,9 @@ export class CardView {
   /** Builds the card's sheets (and drops the previous card's). */
   show(data: CardData): void {
     this.clear();
+    const { layout } = data;
+    const { w: W, h: H, art, mm } = layout;
+    (this.shared.artWindow.value as THREE.Vector4).set(art.x / W, art.y / H, (art.x + art.w) / W, (art.y + art.h) / H);
     const scan = new THREE.Texture(data.scan);
     scan.colorSpace = THREE.SRGBColorSpace;
     scan.flipY = false;
@@ -109,15 +114,16 @@ export class CardView {
     scan.needsUpdate = true;
     this.disposables.push(scan);
 
-    const aoTextures = data.occlusion.map((bytes) => this.track(dataTexture(bytes, AO_W, AO_H)));
+    const aoMap = aoSize(layout);
+    const aoTextures = data.occlusion.map((bytes) => this.track(dataTexture(bytes, aoMap.w, aoMap.h)));
     // (each sheet's grain from its own place, as if cut from another part of the board)
     let seed = 5;
     const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 
     for (const sheet of data.sheets) {
       const mask = this.track(dataTexture(sheet.mask, W, H));
-      const faces = this.track(facesGeometry(sheet.bounds));
-      const edges = this.track(edgesGeometry(sheet.edges));
+      const faces = this.track(facesGeometry(layout, sheet.bounds));
+      const edges = this.track(edgesGeometry(layout, sheet.edges));
       const grainOffset = new THREE.Vector2(random(), random());
       const caster = this.track(new THREE.ShaderMaterial({ ...casterShader, uniforms: { mask: { value: mask }, masked: { value: true } }, side: THREE.DoubleSide }));
       const edgeCaster = this.track(new THREE.ShaderMaterial({ ...casterShader, uniforms: { mask: { value: null }, masked: { value: false } }, side: THREE.DoubleSide }));
@@ -133,7 +139,7 @@ export class CardView {
               mask: { value: mask },
               cardBack: { value: this.back },
               grain: { value: this.grain },
-              grainRepeats: { value: new THREE.Vector2(CARD_MM.x / GRAIN_MM, CARD_MM.y / GRAIN_MM) },
+              grainRepeats: { value: new THREE.Vector2(mm.x / GRAIN_MM, mm.y / GRAIN_MM) },
               grainOffset: { value: grainOffset },
               grainDepth: { value: 0.12 },
               showsBack: { value: sheet.back },
@@ -220,7 +226,7 @@ function dataTexture(bytes: Uint8Array, w: number, h: number): THREE.DataTexture
  * A sheet's two faces over its box: the top (at 0, facing out) and the underside (a sheet's
  * thickness lower, facing back), with the scan's coordinates (the shader cuts them to the mask).
  */
-function facesGeometry(box: { x: number; y: number; w: number; h: number }): THREE.BufferGeometry {
+function facesGeometry({ w: W, h: H, mm }: Layout, box: { x: number; y: number; w: number; h: number }): THREE.BufferGeometry {
   const u0 = box.x / W;
   const v0 = box.y / H;
   const u1 = (box.x + box.w) / W;
@@ -239,7 +245,7 @@ function facesGeometry(box: { x: number; y: number; w: number; h: number }): THR
     [-THICKNESS, -1],
   ]) {
     for (const [u, v] of corners) {
-      const [x, y] = place(u, v);
+      const [x, y] = place(mm, u, v);
       position.push(x, y, z);
       normal.push(0, 0, nz);
       uv.push(u, v);
@@ -255,7 +261,7 @@ function facesGeometry(box: { x: number; y: number; w: number; h: number }): THR
 }
 
 /** A strip down a sheet's outline, from its top to its underside, facing out of the shape. */
-function edgesGeometry(edges: Float32Array): THREE.BufferGeometry {
+function edgesGeometry({ w: W, h: H, mm }: Layout, edges: Float32Array): THREE.BufferGeometry {
   const count = edges.length / 6;
   const position = new Float32Array(count * 4 * 3);
   const normal = new Float32Array(count * 4 * 3);
@@ -267,8 +273,8 @@ function edgesGeometry(edges: Float32Array): THREE.BufferGeometry {
     const va = (ay + 0.5) / H;
     const ub = (bx + 0.5) / W;
     const vb = (by + 0.5) / H;
-    const [pax, pay] = place(ua, va);
-    const [pbx, pby] = place(ub, vb);
+    const [pax, pay] = place(mm, ua, va);
+    const [pbx, pby] = place(mm, ub, vb);
     const nx = sx;
     const ny = -sy;
     const verts = [

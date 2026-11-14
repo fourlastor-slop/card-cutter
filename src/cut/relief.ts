@@ -1,5 +1,5 @@
 // What each pixel of a card scan is part of, and how near the art's subject is, for cutting
-// it into sheets (sheets.ts). The frame's parts are where every modern frame has them
+// it into sheets (sheets.ts). The frame's parts are where each game's frame has them
 // (card.ts). The art's subject is what a fill from the window's edge through like colours
 // does not reach: the fill's barrier (the range of colour crossed on the way in) is low on
 // the background and high past the subject's edge. Given a depth of the art (from a depth
@@ -7,7 +7,7 @@
 // what is in the colours of the background the fill did reach and as far back; and the
 // subject's sheets follow the depth.
 
-import { ART_BOX, ATTRIBUTE, FRAME_BOX, H, inset, LIP_BOX, NAME_BOX, Part, STARS, TEXT_INNER, TEXT_OUTER, W } from '../card';
+import { inset, type Layout, Part, within } from '../card';
 import { barrier, blur, dilate, distance, erode, islands, lab, otsu, palette, percentile } from './ops';
 
 /** Background walled in by the subject: a patch at most this far (ΔE, blurred) from the background's colours, and at least this share of the art. */
@@ -25,6 +25,8 @@ const SUBJECT_STEPS = 6;
 export type SubjectBy = 'colour' | 'depth' | 'steps';
 
 export interface Relief {
+  /** The game's frame the scan was cut by. */
+  layout: Layout;
   parts: Uint8Array;
   /** How near each pixel of the art's subject is, 0-1, for cutting it into sheets; -1 off the subject. */
   layer: Float32Array;
@@ -33,44 +35,65 @@ export interface Relief {
 }
 
 /**
- * `rgba`: the scan at 813x1185. `stars`: the level stars on the frame (0-12). `depth`: how
- * near each pixel of the art box is (0 farthest, 1 nearest, row by row), or null.
+ * `rgba`: the scan at the layout's size. `stars`: the level stars on the frame (Yu-Gi-Oh's,
+ * 0-12). `depth`: how near each pixel of the art box is (0 farthest, 1 nearest, row by row),
+ * or null.
  */
-export function relief(rgba: Uint8ClampedArray, stars: number, depth: Float32Array | null, by: SubjectBy = 'depth'): Relief {
-  const parts = frame(Math.max(0, Math.min(STARS.max, stars)));
-  const layer = new Float32Array(W * H).fill(-1);
-  const subject = art(rgba, depth, parts, layer, by);
-  return { parts, layer, subject };
+export function relief(rgba: Uint8ClampedArray, layout: Layout, stars: number, depth: Float32Array | null, by: SubjectBy = 'depth'): Relief {
+  const parts = frame(rgba, layout, Math.max(0, Math.min(layout.stars?.max ?? 0, stars)));
+  const layer = new Float32Array(layout.w * layout.h).fill(-1);
+  const subject = art(rgba, layout, depth, parts, layer, by);
+  // what is printed over the art stays above it
+  const over = layout.pieces.filter((p) => p.over);
+  if (over.length)
+    for (let y = 0; y < layout.h; y++)
+      for (let x = 0; x < layout.w; x++)
+        for (const piece of over)
+          if (within(piece.shape, x, y)) {
+            parts[y * layout.w + x] = piece.part;
+            layer[y * layout.w + x] = -1;
+          }
+  return { layout, parts, layer, subject };
 }
 
-function frame(stars: number): Uint8Array {
+function frame(rgba: Uint8ClampedArray, layout: Layout, stars: number): Uint8Array {
+  const { w: W, h: H } = layout;
+  const pieces = layout.pieces.filter((p) => !p.over && (!p.onlyIf || meanLight(rgba, W, p.onlyIf) > 110));
   const parts = new Uint8Array(W * H);
   for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++) {
-      let part: Part = inset(FRAME_BOX, x, y) >= 0 ? Part.Frame : Part.Border;
-      if (inset(NAME_BOX, x, y) >= 0) part = Part.Name;
-      if (Math.hypot(x - ATTRIBUTE.x, y - ATTRIBUTE.y) < ATTRIBUTE.r) part = Part.Attribute;
-      for (let k = 0; k < stars; k++)
-        if (Math.hypot(x - (STARS.rightX - k * STARS.step), y - STARS.y) < STARS.r) part = Part.Star;
-      const inText = inset(TEXT_OUTER, x, y);
-      const inWords = inset(TEXT_INNER, x, y);
-      if (inText >= 0 && inWords < 0) part = Part.TextEdge;
-      else if (inWords >= 0) part = Part.Text;
-      if (inset(LIP_BOX, x, y) >= 0) part = Part.Lip;
+      let part: Part = inset(layout.frame, x, y) >= 0 ? Part.Frame : Part.Border;
+      for (const piece of pieces) if (within(piece.shape, x, y)) part = piece.part;
+      const star = layout.stars;
+      if (star)
+        for (let k = 0; k < stars; k++) if (Math.hypot(x - (star.rightX - k * star.step), y - star.y) < star.r) part = Part.Star;
+      if (inset(layout.lip, x, y) >= 0) part = Part.Lip;
       parts[y * W + x] = part;
     }
   return parts;
 }
 
-function art(rgba: Uint8ClampedArray, depth: Float32Array | null, parts: Uint8Array, layerOut: Float32Array, by: SubjectBy): Uint8Array {
-  const w = ART_BOX.w;
-  const h = ART_BOX.h;
+/** How light a box of the scan is on average (0-255). */
+function meanLight(rgba: Uint8ClampedArray, W: number, box: { x: number; y: number; w: number; h: number }): number {
+  let sum = 0;
+  for (let y = box.y; y < box.y + box.h; y++)
+    for (let x = box.x; x < box.x + box.w; x++) {
+      const s = (y * W + x) * 4;
+      sum += 0.2126 * rgba[s] + 0.7152 * rgba[s + 1] + 0.0722 * rgba[s + 2];
+    }
+  return sum / (box.w * box.h);
+}
+
+function art(rgba: Uint8ClampedArray, layout: Layout, depth: Float32Array | null, parts: Uint8Array, layerOut: Float32Array, by: SubjectBy): Uint8Array {
+  const { w: W, art: box } = layout;
+  const w = box.w;
+  const h = box.h;
   const n = w * h;
   const labs = [new Float32Array(n), new Float32Array(n), new Float32Array(n)];
   const c = [0, 0, 0];
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
-      const s = ((ART_BOX.y + y) * W + ART_BOX.x + x) * 4;
+      const s = ((box.y + y) * W + box.x + x) * 4;
       lab(rgba[s], rgba[s + 1], rgba[s + 2], c);
       const i = y * w + x;
       labs[0][i] = c[0];
@@ -176,7 +199,7 @@ function art(rgba: Uint8ClampedArray, depth: Float32Array | null, parts: Uint8Ar
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const j = y * w + x;
-      const i = (ART_BOX.y + y) * W + ART_BOX.x + x;
+      const i = (box.y + y) * W + box.x + x;
       parts[i] = subject[j] ? Part.Subject : Part.Back;
       layerOut[i] = subject[j] ? layer[j] : -1;
       shown[j] = pocket[j] ? 3 : subject[j] && !before[j] ? 2 : subject[j];
@@ -185,18 +208,22 @@ function art(rgba: Uint8ClampedArray, depth: Float32Array | null, parts: Uint8Ar
 }
 
 /**
- * The level stars on a monster's frame, counted from the right: a slot holds a star when its
- * middle is the stars' orange (Spells, Traps, Xyz and Link monsters have none there).
+ * The level stars on a Yu-Gi-Oh monster's frame, counted from the right: a slot holds a star
+ * when its middle is the stars' orange (Spells, Traps, Xyz and Link monsters have none there).
+ * None on other games' frames.
  */
-export function countStars(rgba: Uint8ClampedArray): number {
+export function countStars(rgba: Uint8ClampedArray, layout: Layout): number {
+  const star = layout.stars;
+  if (!star) return 0;
+  const W = layout.w;
   let count = 0;
-  for (let k = 0; k < STARS.max; k++) {
-    const cx = Math.round(STARS.rightX - k * STARS.step);
+  for (let k = 0; k < star.max; k++) {
+    const cx = Math.round(star.rightX - k * star.step);
     let r = 0;
     let g = 0;
     let b = 0;
     let m = 0;
-    for (let y = STARS.y - 15; y < STARS.y + 15; y++)
+    for (let y = star.y - 15; y < star.y + 15; y++)
       for (let x = cx - 15; x < cx + 15; x++) {
         const s = (y * W + x) * 4;
         r += rgba[s];

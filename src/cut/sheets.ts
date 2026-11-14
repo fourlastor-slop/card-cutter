@@ -2,9 +2,10 @@
 // shape, held apart by small gaps. The back is the whole card; the frame is a stack of sheets
 // with the art's window cut out; the art's subject is sheets cut smaller and smaller toward
 // its nearest parts (Relief.layer), over the back's print of the art; the name box, the stars
-// and the text box are a sheet over the frame, the attribute one more.
+// and the text box (and the other games' bars) are a sheet over the frame, the attribute (and
+// Magic's P/T box, and what a full art has printed over it) one more.
 
-import { H, onCard, Part, W } from '../card';
+import { type Layout, onCard, Part } from '../card';
 import type { Relief } from './relief';
 import { blur, boxBlur, islands } from './ops';
 
@@ -18,8 +19,10 @@ const SMALLEST_PIECE = 150;
 const EDGE = 0.5;
 
 /** The ambient occlusion maps' size: half the scan's. */
-export const AO_W = Math.ceil(W / 2);
-export const AO_H = Math.ceil(H / 2);
+export const aoSize = (layout: Layout) => ({ w: Math.ceil(layout.w / 2), h: Math.ceil(layout.h / 2) });
+
+const RAISED: Part[] = [Part.Name, Part.Attribute, Part.Star, Part.TextEdge, Part.Text, Part.Bar, Part.Stats, Part.Overlay];
+const TOP: Part[] = [Part.Attribute, Part.Stats, Part.Overlay];
 
 export interface Sheet {
   /** Its shape, 0-255 a pixel at the scan's size, softened so its edge runs between pixels. */
@@ -42,22 +45,23 @@ export interface Sheet {
 export type Stack = 'single' | 'nested';
 
 export function sheets(map: Relief, stack: Stack = 'single'): Sheet[] {
-  const { parts, layer } = map;
+  const { layout, parts, layer } = map;
+  const { w: W, h: H } = layout;
   const n = W * H;
   const list: Sheet[] = [];
   const add = (inside: (i: number) => boolean, levels: number[], back = false) => {
     const mask = new Float32Array(n);
     for (let i = 0; i < n; i++) mask[i] = inside(i) ? 1 : 0;
     blur(mask, W, H, 0.7);
-    const bounds = boundsOf(mask);
+    const bounds = boundsOf(mask, W, H);
     if (bounds.w <= 0) return;
     const bytes = new Uint8Array(n);
     for (let i = 0; i < n; i++) bytes[i] = Math.round(Math.min(1, Math.max(0, mask[i])) * 255);
-    list.push({ mask: bytes, bounds, levels, back, edges: outline(mask) });
+    list.push({ mask: bytes, bounds, levels, back, edges: outline(mask, W, H) });
   };
 
   const card = new Uint8Array(n);
-  for (let i = 0; i < n; i++) card[i] = onCard(i % W, Math.floor(i / W)) ? 1 : 0;
+  for (let i = 0; i < n; i++) card[i] = onCard(layout, i % W, Math.floor(i / W)) ? 1 : 0;
   add((i) => card[i] === 1, [0], true);
   add(
     (i) => card[i] === 1 && parts[i] !== Part.Back && parts[i] !== Part.Subject,
@@ -85,18 +89,12 @@ export function sheets(map: Relief, stack: Stack = 'single'): Sheet[] {
     }
     add((i) => cut[i] === 1, [k]);
   }
-  add(
-    (i) => {
-      const p = parts[i];
-      return p === Part.Name || p === Part.Attribute || p === Part.Star || p === Part.TextEdge || p === Part.Text;
-    },
-    [FRAME_SHEETS + 1],
-  );
-  add((i) => parts[i] === Part.Attribute, [FRAME_SHEETS + 2]);
+  add((i) => RAISED.includes(parts[i] as Part), [FRAME_SHEETS + 1]);
+  add((i) => TOP.includes(parts[i] as Part), [FRAME_SHEETS + 2]);
   return list;
 }
 
-function boundsOf(mask: Float32Array) {
+function boundsOf(mask: Float32Array, W: number, H: number) {
   let x0 = W;
   let y0 = H;
   let x1 = -1;
@@ -118,7 +116,7 @@ function boundsOf(mask: Float32Array) {
 }
 
 /** A mask's value between pixels (a pixel's middle at whole numbers), nothing past the scan. */
-function sample(mask: Float32Array, x: number, y: number): number {
+function sample(mask: Float32Array, W: number, H: number, x: number, y: number): number {
   const x0 = Math.floor(x);
   const y0 = Math.floor(y);
   const fx = x - x0;
@@ -133,7 +131,7 @@ function sample(mask: Float32Array, x: number, y: number): number {
  * The edge of a mask's shape, as short segments (marching squares between the middles of
  * pixels, nothing past the scan's edge), each with the way out of the shape.
  */
-function outline(mask: Float32Array): Float32Array {
+function outline(mask: Float32Array, W: number, H: number): Float32Array {
   const out: number[] = [];
   const at = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? 0 : mask[y * W + x]);
   const cross = (ax: number, ay: number, bx: number, by: number, va: number, vb: number): [number, number] => {
@@ -149,7 +147,7 @@ function outline(mask: Float32Array): Float32Array {
     sy /= len;
     const mx = (a[0] + b[0]) / 2;
     const my = (a[1] + b[1]) / 2;
-    if (sample(mask, mx + sx * 0.6, my + sy * 0.6) > sample(mask, mx - sx * 0.6, my - sy * 0.6)) {
+    if (sample(mask, W, H, mx + sx * 0.6, my + sy * 0.6) > sample(mask, W, H, mx - sx * 0.6, my - sy * 0.6)) {
       sx = -sx;
       sy = -sy;
     }
@@ -211,7 +209,9 @@ function outline(mask: Float32Array): Float32Array {
  * the sheets above a point hide the room's light from it. What is close above counts most and
  * casts a tight shadow; what is higher up, a fainter and wider one.
  */
-export function occlusion(list: Sheet[]): Uint8Array[] {
+export function occlusion(list: Sheet[], layout: Layout): Uint8Array[] {
+  const { w: W, h: H } = layout;
+  const { w: AO_W, h: AO_H } = aoSize(layout);
   const n = AO_W * AO_H;
   // what covers each level: everything above it (the highest sheet's mask, at half size)
   const above: Float32Array[] = Array.from({ length: TOP_LEVEL + 1 }, () => new Float32Array(n));
@@ -244,7 +244,7 @@ export function occlusion(list: Sheet[]): Uint8Array[] {
     { above: 2, weight: 0.3, sigmaMm: 2.0 },
     { above: 3, weight: 0.2, sigmaMm: 3.2 },
   ];
-  const pxPerMm = AO_W / 59;
+  const pxPerMm = AO_W / layout.mm.x;
   const blurred = new Map<string, Float32Array>();
   const cover = (from: number, sigmaMm: number) => {
     const key = `${from}:${sigmaMm}`;
