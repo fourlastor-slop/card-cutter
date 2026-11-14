@@ -16,12 +16,15 @@ Live at <https://card-cutter.fourlastor.org>.
   - *Pokémon* (pokemontcg.io's 734×1024, the Scarlet & Violet frame): name and HP, type
     symbol, art window, species strip, weakness strip.
   - *Pokémon, full art* (ex, V, illustration rares): the art fills the border; the name and
-    HP above it and the weakness and rules below it are kept on top of it.
+    HP above it and the weakness and rules below it stand solid from the frame's sheets to
+    the top, like a frame round the recessed art.
 
-  The game is guessed from the scan's shape (Yu-Gi-Oh's cards are 59×86 mm, the others
-  63×88) and its border (Magic's black, Pokémon's silver or yellow), and a Pokémon card is
-  full art when its art window's straight edges are missing; or it is chosen in the Frame
-  menu.
+  The game is guessed by where the card's art window is: each layout scores how sharp its
+  window's four sides are, the weakest counting, and a clear winner is taken. Without a
+  window (a full art, a custom frame) it goes by the card's border (Magic's black, Pokémon's
+  silver or yellow) and, in scans only, its shape (Yu-Gi-Oh's cards are 59×86 mm, the
+  others 63×88: a photo straightened at a slight angle can be off by as much). The Frame
+  menu chooses it by hand.
 - **Photos.** A card photographed on a table is found and straightened first
   (`src/find.ts`): each side is a line fitted to where the colour leaves the background's,
   walking in from the photo's edge, and the four lines' corners are mapped onto a flat card

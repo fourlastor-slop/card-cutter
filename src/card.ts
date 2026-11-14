@@ -165,46 +165,60 @@ export function onCard(layout: Layout, x: number, y: number): boolean {
   return Math.hypot(cx, cy) <= cornerMm;
 }
 
+/** The layouts told apart by their art windows (a full art has none). */
+const WINDOWED: Layout[] = [YUGIOH, MAGIC, POKEMON];
+/** A window is there when its weakest side's edge is at least this strong, and twice any other layout's. */
+const CLEAR_WINDOW = 18;
+/** How far (scan pixels) a window's side may be from where it was measured: a photo straightened a little off. */
+const WINDOW_SLACK = 16;
+
 /**
- * Which game a scan is from, by its shape and its border: Yu-Gi-Oh's cards are narrower
- * (59x86 mm, the others 63x88); Magic's border is black, Pokémon's silver or yellow.
- * `rgba`: the scan at any size `w` x `h`; `aspect`: the image's width over its height.
+ * Which game a card is from, by where its art window is, else (full art and the like) by its
+ * shape and border: Yu-Gi-Oh's cards are narrower (59x86 mm, the others 63x88); Magic's
+ * border is black, Pokémon's silver or yellow. The shape is only trusted in scans: a photo
+ * straightened at a slight angle can be off by as much as the two shapes differ.
+ * `at`: the card's pixels drawn at a layout's size; `aspect`: its width over its height.
  */
-export function guessGame(rgba: Uint8ClampedArray, w: number, h: number, aspect: number): Game {
+export function guessGame(at: (layout: Layout) => Uint8ClampedArray, aspect: number, photo: boolean): Game {
+  const scores = WINDOWED.map((layout) => ({ game: layout.game, score: windowScore(at(layout), layout) })).sort((a, b) => b.score - a.score);
+  if (scores[0].score >= CLEAR_WINDOW && scores[0].score >= 2 * scores[1].score) return scores[0].game;
   const narrow = YUGIOH.mm.x / YUGIOH.mm.y;
   const wide = MAGIC.mm.x / MAGIC.mm.y;
-  if (Math.abs(aspect - narrow) < Math.abs(aspect - wide)) return 'yugioh';
+  if (!photo && Math.abs(aspect - narrow) < Math.abs(aspect - wide)) return 'yugioh';
   // the border down the sides, clear of the corners (transparent in some scans)
+  const { w, h } = MAGIC;
+  const rgba = at(MAGIC);
   let sum = 0;
   let count = 0;
-  const edge = Math.max(1, Math.round(w * 0.02));
+  const edge = Math.round(w * 0.02);
   for (let y = Math.round(h * 0.15); y < h * 0.85; y++)
     for (const x of [edge, w - 1 - edge]) {
-      const s = (y * w + x) * 4;
-      sum += 0.2126 * rgba[s] + 0.7152 * rgba[s + 1] + 0.0722 * rgba[s + 2];
+      sum += light(rgba, (y * w + x) * 4);
       count++;
     }
-  return sum / count < 70 ? 'magic' : 'pokemon';
+  return sum / count < 70 ? 'magic' : 'pokemon-full';
 }
 
 /**
- * Whether a Pokémon card has an art window (else it is full art): the window's sides and the
- * bar under it are sharp straight edges where a full art has none. `rgba`: the scan at the
- * Pokémon layout's size.
+ * How clearly a layout's art window is in a card drawn at its size: the window's sides are
+ * sharp straight edges (the median across one, along the middle of the side, for its
+ * straightness), and the weakest of the four counts.
  */
-export function hasArtWindow(rgba: Uint8ClampedArray): boolean {
-  const { w } = POKEMON;
-  const grey = (x: number, y: number) => {
-    const s = (y * w + x) * 4;
-    return 0.2126 * rgba[s] + 0.7152 * rgba[s + 1] + 0.0722 * rgba[s + 2];
-  };
+export function windowScore(rgba: Uint8ClampedArray, layout: Layout): number {
+  const { w, art } = layout;
   const median = (values: number[]) => values.sort((a, b) => a - b)[values.length >> 1];
   const range = (from: number, to: number) => Array.from({ length: to - from }, (_, k) => from + k);
-  // the strongest edge near each of the window's sides (the median along it, for its straightness)
-  const column = (x: number) => median(range(140, 440).map((y) => Math.abs(grey(x + 1, y) - grey(x, y))));
-  const row = (y: number) => median(range(100, 630).map((x) => Math.abs(grey(x, y + 1) - grey(x, y))));
-  const left = Math.max(...range(46, 64).map(column));
-  const right = Math.max(...range(670, 690).map(column));
-  const bottom = Math.max(...range(474, 494).map(row));
-  return (left + right + bottom) / 3 > 30;
+  const rows = range(art.y + Math.round(art.h / 10), art.y + art.h - Math.round(art.h / 10));
+  const columns = range(art.x + Math.round(art.w / 10), art.x + art.w - Math.round(art.w / 10));
+  const across = (x: number) => median(rows.map((y) => Math.abs(light(rgba, (y * w + x + 1) * 4) - light(rgba, (y * w + x) * 4))));
+  const down = (y: number) => median(columns.map((x) => Math.abs(light(rgba, ((y + 1) * w + x) * 4) - light(rgba, (y * w + x) * 4))));
+  const near = (at: number) => range(at - WINDOW_SLACK, at + WINDOW_SLACK);
+  return Math.min(
+    Math.max(...near(art.x).map(across)),
+    Math.max(...near(art.x + art.w - 1).map(across)),
+    Math.max(...near(art.y).map(down)),
+    Math.max(...near(art.y + art.h - 1).map(down)),
+  );
 }
+
+const light = (rgba: Uint8ClampedArray, s: number) => 0.2126 * rgba[s] + 0.7152 * rgba[s + 1] + 0.0722 * rgba[s + 2];
