@@ -26,7 +26,7 @@ const LINES = 48;
 /** The share of lines that must fit a side's line. */
 const FIT = 0.6;
 /** Where a card's rounded corner shows the background (a share of its width in from both sides), and where its border is. */
-const CORNER_PROBE = 0.006;
+const CORNER_PROBE = 0.008;
 const OUTSIDE = 0.012;
 const BORDER = { along: 0.08, in: 0.012 };
 

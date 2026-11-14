@@ -242,5 +242,17 @@ describe('find', () => {
     // the synthetic scans: border, then a frame with square corners
     expect(findCard({ data: scan(LAYOUTS.magic, 0, [], [10, 10, 10]), width: LAYOUTS.magic.w, height: LAYOUTS.magic.h })).toBeNull();
     expect(findCard({ data: scan(YUGIOH), width: YUGIOH.w, height: YUGIOH.h })).toBeNull();
+    // a frame whose corners are rounded a little (Sun & Moon's: a third of a card's radius), inside a yellow border
+    const width = 600;
+    const height = 838;
+    const data = new Uint8ClampedArray(width * height * 4);
+    const frame = { x: 24, y: 24, w: width - 48, h: height - 48, r: 8 };
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const cx = Math.max(Math.abs(x - width / 2) - (frame.w / 2 - frame.r), 0);
+        const cy = Math.max(Math.abs(y - height / 2) - (frame.h / 2 - frame.r), 0);
+        data.set([...(Math.hypot(cx, cy) <= frame.r ? [110, 170, 70] : [250, 220, 100]), 255], (y * width + x) * 4);
+      }
+    expect(findCard({ data, width, height })).toBeNull();
   });
 });
