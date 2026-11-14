@@ -3,7 +3,9 @@
 // with the art's window cut out; the art's subject is sheets cut smaller and smaller toward
 // its nearest parts (Relief.layer), over the back's print of the art; the name box, the stars
 // and the text box (and the other games' bars) are a sheet over the frame, the attribute (and
-// Magic's P/T box, and what a full art has printed over it) one more.
+// Magic's P/T box, and what a full art has printed over it) one more. On a full art those
+// bands are frame too, so they stand solid from the frame's sheets to the top, the art
+// recessed between them as in a window.
 
 import { type Layout, onCard, Part } from '../card';
 import type { Relief } from './relief';

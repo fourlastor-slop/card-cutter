@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { guessGame, hasArtWindow, type Layout, LAYOUTS, onCard, Part } from '../src/card';
+import { guessGame, type Layout, LAYOUTS, onCard, Part, windowScore } from '../src/card';
 import { distance, islands, otsu } from '../src/cut/ops';
 import { countStars, relief } from '../src/cut/relief';
 import { aoSize, FRAME_SHEETS, occlusion, sheets, SUBJECT_SHEETS, TOP_LEVEL } from '../src/cut/sheets';
@@ -43,6 +43,34 @@ function depth(layout: Layout): Float32Array {
       d[y * art.w + x] = r < r0 ? 0.4 + 0.6 * (1 - r / r0) : 0.1;
     }
   return d;
+}
+
+/** A card without an art window: a border round a smooth gradient. */
+function plain(layout: Layout, border: number[]): Uint8ClampedArray {
+  const { w: W, h: H, frame } = layout;
+  const rgba = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const inFrame = x >= frame.x && x < frame.x + frame.w && y >= frame.y && y < frame.y + frame.h;
+      rgba.set([...(inFrame ? [(x / W) * 200, (y / H) * 200, 120] : border), 255], (y * W + x) * 4);
+    }
+  return rgba;
+}
+
+/** A card's pixels as guessGame takes them: drawn (nearest pixel) at any layout's size, `stretch` times as tall about its middle. */
+function resampled(from: Layout, rgba: Uint8ClampedArray, stretch = 1) {
+  return (to: Layout) => {
+    const out = new Uint8ClampedArray(to.w * to.h * 4);
+    for (let y = 0; y < to.h; y++) {
+      const v = ((y + 0.5) / to.h - 0.5) / stretch + 0.5;
+      const sy = Math.min(from.h - 1, Math.max(0, Math.floor(v * from.h)));
+      for (let x = 0; x < to.w; x++) {
+        const sx = Math.min(from.w - 1, Math.floor(((x + 0.5) / to.w) * from.w));
+        out.set(rgba.subarray((sy * from.w + sx) * 4, (sy * from.w + sx) * 4 + 4), (y * to.w + x) * 4);
+      }
+    }
+    return out;
+  };
 }
 
 /** The scan pixel in the middle of the art, and one near its top-left corner. */
@@ -154,12 +182,33 @@ describe('cut', () => {
     expect(relief(scan(magic, 0, [stats.onlyIf!], black), magic, 0, null).parts[at]).toBe(Part.Stats);
   });
 
-  it('guesses the game', () => {
-    const at = (layout: Layout, border: number[]) => guessGame(scan(layout, 0, [], border), layout.w, layout.h, layout.mm.x / layout.mm.y);
-    expect(at(YUGIOH, [200, 160, 90])).toBe('yugioh');
-    expect(at(LAYOUTS.magic, [12, 12, 12])).toBe('magic');
-    expect(at(LAYOUTS.pokemon, [190, 190, 195])).toBe('pokemon');
-    expect(at(LAYOUTS.pokemon, [240, 210, 60])).toBe('pokemon');
+  it('guesses the game by its art window', () => {
+    const magicBorder = [12, 12, 12];
+    for (const layout of [YUGIOH, LAYOUTS.magic, LAYOUTS.pokemon]) {
+      const at = resampled(layout, scan(layout, 0, [], layout === LAYOUTS.magic ? magicBorder : [190, 190, 195]));
+      expect(guessGame(at, layout.mm.x / layout.mm.y, false)).toBe(layout.game);
+    }
+    // a Pokémon card photographed at a slight angle: 3% too tall, Yu-Gi-Oh's shape more than its own
+    const pokemon = LAYOUTS.pokemon;
+    expect(guessGame(resampled(pokemon, scan(pokemon), 1.03), 0.7, true)).toBe('pokemon');
+  });
+
+  it('guesses a card without an art window by its shape and border', () => {
+    const at = (border: number[]) => resampled(LAYOUTS.pokemon, plain(LAYOUTS.pokemon, border));
+    expect(guessGame(at([12, 12, 12]), 63 / 88, false)).toBe('magic');
+    expect(guessGame(at([190, 190, 195]), 63 / 88, false)).toBe('pokemon-full');
+    expect(guessGame(at([240, 210, 60]), 63 / 88, false)).toBe('pokemon-full');
+    // Yu-Gi-Oh's shape: trusted in a scan, not in a photo
+    expect(guessGame(at([190, 190, 195]), 59 / 86, false)).toBe('yugioh');
+    expect(guessGame(at([190, 190, 195]), 59 / 86, true)).toBe('pokemon-full');
+  });
+
+  it("scores a layout's art window", () => {
+    const pokemon = LAYOUTS.pokemon;
+    const at = resampled(pokemon, scan(pokemon));
+    expect(windowScore(at(pokemon), pokemon)).toBeGreaterThan(50);
+    expect(windowScore(at(LAYOUTS.magic), LAYOUTS.magic)).toBeLessThan(5);
+    expect(windowScore(plain(pokemon, [190, 190, 195]), pokemon)).toBeLessThan(5);
   });
 
   it("cuts a full art, keeping what is printed over it on top", () => {
@@ -173,15 +222,6 @@ describe('cut', () => {
     const top = sheets(map).filter((s) => s.levels[0] === TOP_LEVEL);
     expect(top).toHaveLength(1);
     expect(top[0].mask[at]).toBe(255);
-  });
-
-  it("tells a Pokémon card's art window from a full art", () => {
-    const { w, h } = LAYOUTS.pokemon;
-    expect(hasArtWindow(scan(LAYOUTS.pokemon))).toBe(true);
-    // a smooth gradient all over
-    const smooth = new Uint8ClampedArray(w * h * 4);
-    for (let i = 0; i < w * h; i++) smooth.set([((i % w) / w) * 255, ((i / w / h) * 255) | 0, 120, 255], i * 4);
-    expect(hasArtWindow(smooth)).toBe(false);
   });
 
   it('rounds the card corners', () => {

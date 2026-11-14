@@ -1,5 +1,5 @@
 import './style.css';
-import { GAMES, guessGame, hasArtWindow, type Game, type Layout, LAYOUTS } from './card';
+import { GAMES, guessGame, type Game, type Layout, LAYOUTS } from './card';
 import type { SubjectBy } from './cut/relief';
 import type { Stack } from './cut/sheets';
 import type { Precision } from './depth';
@@ -157,19 +157,12 @@ function cardIn(bitmap: ImageBitmap): { image: CanvasImageSource; width: number;
   return { image: canvas, width: card.width, height: card.height, found: true };
 }
 
-/**
- * The game a card is from, as chosen, else guessed: by its shape and border, and for
- * Pokémon, full art when there is no art window.
- */
-function gameOf(card: { image: CanvasImageSource; width: number; height: number }): { game: Game; guessed: boolean } {
+/** The game a card is from, as chosen, else guessed (by its art window, else its shape and border). */
+function gameOf(card: { image: CanvasImageSource; width: number; height: number; found: boolean }): { game: Game; guessed: boolean } {
   const chosen = gameBy.value as Game;
   if (GAMES.includes(chosen)) return { game: chosen, guessed: false };
-  const w = 63;
-  const h = 88;
-  const game = guessGame(drawn(card.image, w, h).pixels().data, w, h, card.width / card.height);
-  if (game !== 'pokemon') return { game, guessed: true };
-  const { w: pw, h: ph } = LAYOUTS.pokemon;
-  return { game: hasArtWindow(drawn(card.image, pw, ph).pixels().data) ? 'pokemon' : 'pokemon-full', guessed: true };
+  const at = (layout: Layout) => drawn(card.image, layout.w, layout.h).pixels().data;
+  return { game: guessGame(at, card.width / card.height, card.found), guessed: true };
 }
 
 const finish = $<HTMLSelectElement>('finish');
