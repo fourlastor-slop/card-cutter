@@ -7,9 +7,26 @@ Live at <https://card-cutter.fourlastor.org>.
 
 ## How the cut is made
 
-- **Frame.** The parts of a modern TCG frame (name box, attribute, level stars, art window,
-  text box) are at fixed places, measured on 813×1185 scans (`src/card.ts`). Any other size
-  is stretched to that. Level stars are found by their colour in each slot.
+- **Frame.** Three games' modern frames, each with its parts at fixed places (`src/card.ts`),
+  measured on a common scan size for it; any other size is stretched to that:
+  - *Yu-Gi-Oh!* (YGOPRODeck's 813×1185): name box, attribute, level stars (found by their
+    colour in each slot), art window, text box.
+  - *Magic* (Scryfall's 744×1040, the frame since 2015): name bar, art window, type line,
+    text box, and the P/T box where there is one (found by its colour over the black border).
+  - *Pokémon* (pokemontcg.io's 734×1024, the Scarlet & Violet frame): name and HP, type
+    symbol, art window, species strip, weakness strip.
+  - *Pokémon, full art* (ex, V, illustration rares): the art fills the border; the name and
+    HP above it and the weakness and rules below it are kept on top of it.
+
+  The game is guessed from the scan's shape (Yu-Gi-Oh's cards are 59×86 mm, the others
+  63×88) and its border (Magic's black, Pokémon's silver or yellow), and a Pokémon card is
+  full art when its art window's straight edges are missing; or it is chosen in the Frame
+  menu.
+- **Photos.** A card photographed on a table is found and straightened first
+  (`src/find.ts`): each side is a line fitted to where the colour leaves the background's,
+  walking in from the photo's edge, and the four lines' corners are mapped onto a flat card
+  through the perspective. A scan already cut to the card is left alone: what that finds is
+  the border's inner edge, whose corners are not rounded like a card's.
 - **Subject.** Two ways, chosen in the page's Cut menu (`src/cut/relief.ts`):
   - *Colour + depth* (the default): a minimum-barrier fill from the art window's edge, in
     L\*a\*b\*, with an Otsu threshold, finds what stands out from the background by colour;
@@ -23,7 +40,8 @@ Live at <https://card-cutter.fourlastor.org>.
   (`src/depth.ts`). It is downloaded from Hugging Face on first use and kept in the
   browser's cache. - **Sheets.** The back is the whole card; the frame is five sheets with the window cut out;
   the subject is six sheets by depth, each part on one sheet only; the name box, stars and
-  text box sit one sheet above the frame, the attribute one more (`src/cut/sheets.ts`).
+  text box (and the other games' bars) sit one sheet above the frame, the attribute (and
+  Magic's P/T box) one more (`src/cut/sheets.ts`).
   Ambient occlusion is baked per level from the sheets above.
 - **Rendering.** three.js: banded light, a shadow map of the cut shapes, gloss from a few
   analytic soft boxes, paper grain, matte cut edges, and an optional holo foil

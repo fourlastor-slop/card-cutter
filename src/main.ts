@@ -1,9 +1,10 @@
 import './style.css';
-import { CARD_MM, H, W } from './card';
+import { GAMES, guessGame, hasArtWindow, type Game, type Layout, LAYOUTS } from './card';
 import type { SubjectBy } from './cut/relief';
 import type { Stack } from './cut/sheets';
 import type { Precision } from './depth';
 import { CardView, FINISHES, TURN, type Finish } from './render/view';
+import { findCard, quadSize, straighten } from './find';
 import { canMakeVideo, makeVideo } from './video';
 import type { CutMessage, CutRequest, CutResult } from './worker';
 
@@ -116,6 +117,61 @@ cutBy.addEventListener('change', () => {
   if (lastCard) void cut(lastCard);
 });
 
+// which game's frame the card has: guessed from the scan, or chosen; a change cuts it again
+const gameBy = $<HTMLSelectElement>('game');
+gameBy.addEventListener('change', () => {
+  if (lastCard) void cut(lastCard);
+});
+
+/** An image drawn at a size, and its pixels. */
+function drawn(image: CanvasImageSource, width: number, height: number) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true })!;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(image, 0, 0, width, height);
+  return { canvas, pixels: () => context.getImageData(0, 0, width, height) };
+}
+
+/**
+ * The card in an image: found in a photo, cut out and straightened, or else the image as it
+ * is (a scan already cut to the card).
+ */
+function cardIn(bitmap: ImageBitmap): { image: CanvasImageSource; width: number; height: number; found: boolean } {
+  const as = { image: bitmap, width: bitmap.width, height: bitmap.height, found: false };
+  const look = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
+  const quad = findCard(drawn(bitmap, Math.round(bitmap.width * look), Math.round(bitmap.height * look)).pixels());
+  if (!quad) return as;
+  // straightened from the photo at up to 2600 pixels on its long side
+  const scale = Math.min(1, 2600 / Math.max(bitmap.width, bitmap.height));
+  const photo = drawn(bitmap, Math.round(bitmap.width * scale), Math.round(bitmap.height * scale)).pixels();
+  const corners = quad.map((p) => ({ x: ((p.x + 0.5) * scale) / look, y: ((p.y + 0.5) * scale) / look })) as typeof quad;
+  const size = quadSize(corners);
+  const fit = Math.min(1, 2048 / size.height);
+  const card = straighten(photo, corners, Math.round(size.width * fit), Math.round(size.height * fit));
+  const canvas = document.createElement('canvas');
+  canvas.width = card.width;
+  canvas.height = card.height;
+  canvas.getContext('2d')!.putImageData(new ImageData(card.data as Uint8ClampedArray<ArrayBuffer>, card.width, card.height), 0, 0);
+  return { image: canvas, width: card.width, height: card.height, found: true };
+}
+
+/**
+ * The game a card is from, as chosen, else guessed: by its shape and border, and for
+ * Pokémon, full art when there is no art window.
+ */
+function gameOf(card: { image: CanvasImageSource; width: number; height: number }): { game: Game; guessed: boolean } {
+  const chosen = gameBy.value as Game;
+  if (GAMES.includes(chosen)) return { game: chosen, guessed: false };
+  const w = 63;
+  const h = 88;
+  const game = guessGame(drawn(card.image, w, h).pixels().data, w, h, card.width / card.height);
+  if (game !== 'pokemon') return { game, guessed: true };
+  const { w: pw, h: ph } = LAYOUTS.pokemon;
+  return { game: hasArtWindow(drawn(card.image, pw, ph).pixels().data) ? 'pokemon' : 'pokemon-full', guessed: true };
+}
+
 const finish = $<HTMLSelectElement>('finish');
 const applyFinish = () => {
   if ((FINISHES as readonly string[]).includes(finish.value)) view.setFinish(finish.value as Finish);
@@ -178,55 +234,50 @@ const say = (text: string, error = false) => {
 async function cut(chosen: File): Promise<void> {
   if (working) return;
   working = true;
-  cutBy.disabled = true;
+  cutBy.disabled = gameBy.disabled = true;
   playButton.disabled = videoButton.disabled = true;
   say('');
   try {
     const bitmap = await createImageBitmap(chosen).catch(() => {
       throw new Error('That file could not be read as an image.');
     });
-    const aspect = bitmap.width / bitmap.height;
-    const cardAspect = CARD_MM.x / CARD_MM.y;
+    setBusy('Finding the card…');
+    await new Promise((r) => requestAnimationFrame(r));
+    const card = cardIn(bitmap);
+    const { game, guessed } = gameOf(card);
+    const layout = LAYOUTS[game];
+    const { w: W, h: H } = layout;
+    const aspect = card.width / card.height;
+    const cardAspect = layout.mm.x / layout.mm.y;
     const skewed = Math.abs(aspect / cardAspect - 1) > 0.06;
 
-    // the scan stretched to the size the frame was measured on, for the cut
-    const small = document.createElement('canvas');
-    small.width = W;
-    small.height = H;
-    const context = small.getContext('2d', { willReadFrequently: true })!;
-    context.imageSmoothingQuality = 'high';
-    context.drawImage(bitmap, 0, 0, W, H);
-    const scan = context.getImageData(0, 0, W, H);
+    // the card stretched to the size the game's frame was measured on, for the cut
+    const scan = drawn(card.image, W, H).pixels();
     // and as large as it came (within reason) for the print on the sheets
-    const printHeight = Math.max(H, Math.min(bitmap.height, 2048));
-    const print = document.createElement('canvas');
-    print.height = printHeight;
-    print.width = Math.round((printHeight * W) / H);
-    const printContext = print.getContext('2d')!;
-    printContext.imageSmoothingQuality = 'high';
-    printContext.drawImage(bitmap, 0, 0, print.width, print.height);
+    const printHeight = Math.max(H, Math.min(card.height, 2048));
+    const print = drawn(card.image, Math.round((printHeight * W) / H), printHeight).canvas;
     bitmap.close();
 
     setBusy('Finding the depth…');
-    const result = await runCut({ scan, precision, stack, subject: subjectBy() });
+    const result = await runCut({ game, scan, precision, stack, subject: subjectBy() });
     lastCard = chosen;
     setBusy('Building the sheets…');
     await new Promise((r) => requestAnimationFrame(r));
-    view.show({ sheets: result.sheets, occlusion: result.occlusion, scan: print });
+    view.show({ layout, sheets: result.sheets, occlusion: result.occlusion, scan: print });
     drop.hidden = true;
     clock = 0;
     setPlaying(true);
     playButton.disabled = false;
     videoButton.disabled = !canMakeVideo();
     if (!canMakeVideo()) videoButton.title = 'This browser cannot make videos.';
-    showFacts(result);
+    showFacts(result, layout, guessed, card.found);
     say(skewed ? "That image isn't card-shaped, so it was stretched to fit; the cut may be off." : 'Done. Drag to turn it, double-click to let it spin again.');
   } catch (error) {
     say(error instanceof Error ? error.message : String(error), true);
   } finally {
     setBusy(null);
     working = false;
-    cutBy.disabled = false;
+    cutBy.disabled = gameBy.disabled = false;
   }
 }
 
@@ -252,10 +303,12 @@ function runCut(request: CutRequest): Promise<CutResult> {
   });
 }
 
-function showFacts(result: CutResult) {
+function showFacts(result: CutResult, layout: Layout, guessed: boolean, found: boolean) {
   const rows: [string, string][] = [
+    ['Frame', guessed ? `${layout.name} (guessed)` : layout.name],
+    ...(found ? [['Photo', 'card found and straightened'] as [string, string]] : []),
     ['Sheets', String(result.sheets.reduce((n, s) => n + s.levels.length, 0))],
-    ['Level stars', result.stars ? String(result.stars) : 'none found'],
+    ...(layout.stars ? [['Level stars', result.stars ? String(result.stars) : 'none found'] as [string, string]] : []),
     ['Depth', `${Math.round(result.depthMs)} ms`],
     ['Cut', `${Math.round(result.cutMs)} ms`],
   ];
